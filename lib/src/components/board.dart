@@ -2,7 +2,7 @@ import 'package:flame/components.dart';
 import 'package:flutter/material.dart';
 
 import '../chaupar.dart';
-import '../config.dart';
+import '../constants/constant.dart';
 
 class Board extends RectangleComponent with HasGameReference<Chaupar> {
   Board({

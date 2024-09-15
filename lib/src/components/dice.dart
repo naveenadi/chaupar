@@ -6,7 +6,7 @@ import 'package:flame/events.dart';
 import 'package:flutter/material.dart';
 
 import '../chaupar.dart';
-import '../config.dart';
+import '../constants/constant.dart';
 
 enum DiceState { rolled, notRolled }
 

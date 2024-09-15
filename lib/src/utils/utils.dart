@@ -1,0 +1,1 @@
+export 'component_alignment.dart';

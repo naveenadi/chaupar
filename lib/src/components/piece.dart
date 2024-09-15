@@ -1,26 +1,30 @@
-import 'dart:math';
-
-import 'package:chaupar_chakravyuh/src/config.dart';
+import 'package:chaupar_chakravyuh/src/components/components.dart';
 import 'package:equatable/equatable.dart';
 import 'package:flame/collisions.dart';
 import 'package:flame/components.dart';
+import 'package:flame/effects.dart';
 import 'package:flame/events.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../chaupar.dart';
-import 'components.dart';
+import '../constants/constant.dart';
+import '../utils/component_alignment.dart';
 
 enum PieceType { black, yellow, red, green }
 
 enum PieceState { initial, moving, cut, placed, removed, won }
 
+enum PieceMoveableState { movable, unmovable }
+
 class Piece extends CircleComponent
-    with  CollisionCallbacks, TapCallbacks, HasGameRef<Chaupar> {
+    with CollisionCallbacks, TapCallbacks, HasGameRef<Chaupar>, EquatableMixin {
   final int playerId;
   final PieceType type;
   late PieceState state;
   late int index;
+  late PieceMoveableState moveableState;
+  late ComponentAlignment alignment;
 
   Piece({
     required this.playerId,
@@ -33,6 +37,8 @@ class Piece extends CircleComponent
         ) {
     state = PieceState.initial;
     color = pieceColors[type.name]!;
+    moveableState = PieceMoveableState.unmovable;
+    alignment = ComponentAlignment.center;
   }
 
   late Color color;
@@ -63,8 +69,9 @@ class Piece extends CircleComponent
   void drawPiece(Canvas canvas, Color color) {
     drawCircle(canvas, color);
 
-    _drawDashedCircle(canvas, Colors.brown.shade600, size.x);
-
+    if (moveableState == PieceMoveableState.movable) {
+      _drawDashedCircle(canvas, Colors.brown.shade600, size.x);
+    }
   }
 
   void drawCircle(Canvas canvas, Color color) {
@@ -106,26 +113,101 @@ class Piece extends CircleComponent
   @override
   void update(double dt) {
     super.update(dt);
-    _dashAnimation = (_dashAnimation + dt * 50) % 360;
+    if (moveableState == PieceMoveableState.movable) {
+      _dashAnimation = (_dashAnimation + dt * 50) % 360;
+    }
   }
 
-  void moveTo(Vector2 position) {
-    this.position = position;
+  Vector2 getBoardPosition() {
+    final moveCoord = game.pathCoordinates[type]?.elementAt(index - 1);
+    final offset = game.boardOffsetMap[moveCoord]!;
+    final distination =
+        position = game.boardPosition + Vector2(offset.dx, offset.dy);
+    return distination;
   }
 
-  void move(int diceValue) { 
-    velocity = (Vector2.zero() * pieceVelocity).normalized();
+  void moveTo(List<Vector2> positions) {
+    // Initialize the EffectController
+    EffectController moveEffectController = EffectController(duration: 1.0);
 
-    // get both dice values in a list from game world
-    // and compare them
-    // if they match, then we can move the piece
-    // if they don't match, then we can't move the piece
+    // Loop through the positions and add MoveByEffects
+    for (int i = 0; i < positions.length; i++) {
+      Vector2 startPosition = position;
+      Vector2 endPosition = positions[i];
 
-    final diceValues = game.world.children.query<DicePair>().first.diceValues;
-    
+      // Create a MoveByEffect with the desired duration and easing
+      MoveByEffect moveEffect =
+          MoveByEffect(endPosition - startPosition, moveEffectController);
 
+      // Add the effect to the piece
+      add(moveEffect);
+    }
+  }
 
-    state = PieceState.moving;
+  void moveBy(Vector2 distination) {
+    add(
+      MoveToEffect(
+        distination,
+        EffectController(duration: 0.2),
+        onComplete: () => onMoveComplete(),
+      ),
+    );
+  }
+
+  void onMoveComplete() {
+    if (kDebugMode) {
+      print('onMoveComplete');
+    }
+  }
+
+  // void move(int steps) {
+  //   streamSteps(steps).listen((step) {
+  void move(int steps) async {
+    await for (int step in streamSteps(steps)) {
+      if (kDebugMode) {
+        print('Moving Piece: $playerId, $type at $step');
+      }
+
+      final newPosition = getBoardPosition();
+      add(
+        MoveToEffect(
+          newPosition,
+          EffectController(duration: 0.1),
+          onComplete: () => onMoveComplete(),
+        ),
+      );
+    // }, onDone: () {
+    }
+      if (kDebugMode) {
+        print('onDone: $playerId, $type');
+      }
+      game.nextTurn();
+      final pieces = game.world.children
+          .query<Piece>()
+          .where((piece) => piece.type == type);
+      for (var piece in pieces) {
+        piece.moveableState = PieceMoveableState.unmovable;
+      }
+      game.isNowGameLoopRunable = true;
+      final dice = game.world.children.query<DicePair>().first;
+      dice.isRolled = false;
+      if (kDebugMode) {
+        print('piece move done: $playerId, $type');
+      }
+      // dice.updateDicePositionBasedOnCurrentPlayer();
+    // });
+  }
+
+  Future<int> futureTask() async {
+    await Future.delayed(const Duration(milliseconds: 200));
+    return index++;
+  }
+
+  Stream<int> streamSteps(int steps) async* {
+    for (int i = 0; i < steps; i++) {
+      final stream = Stream<int>.fromFuture(futureTask());
+      yield await stream.first;
+    }
   }
 
   @override
@@ -133,13 +215,15 @@ class Piece extends CircleComponent
       Set<Vector2> intersectionPoints, PositionComponent other) {
     super.onCollisionStart(intersectionPoints, other);
     if (other is Piece) {
-      if (playerId != other.playerId) {
+      if (playerId != other.playerId &&
+          type != other.type &&
+          type == game.playablePieces.elementAt(game.currentPlayer)) {
         game.collisionPieces.add(other);
-        print('collisionPieces ${game.collisionPieces}');
-      }
-      if (kDebugMode) {
-        print(
-            'Collision with other piece: $playerId, $type : ${other.playerId}, ${other.type}');
+        if (kDebugMode) {
+          print(
+              'Collision with other piece: $playerId, $type : ${other.playerId}, ${other.type}');
+          print('collisionPieces ${game.collisionPieces}');
+        }
       }
     }
   }
@@ -150,20 +234,35 @@ class Piece extends CircleComponent
     if (kDebugMode) {
       print('onTapDown: $playerId, $type');
     }
+    if (moveableState == PieceMoveableState.movable) {
+      move(game.totalRolledValues);
+    }
   }
 
   @override
-  void onTapUp(TapUpEvent event)  {
+  void onTapUp(TapUpEvent event) {
     super.onTapUp(event);
     if (kDebugMode) {
       print('onTapUp: $playerId, $type');
     }
   }
 
+  // check if the piece can move to the given index
+  bool canMoveTo(int index) {
+    if (kDebugMode) {
+      print('canMove  $playerId, $type');
+    }
 
-  bool isValidMove(Vector2 position) {
+    // moveCoord have last index than set state to won
+    if (index - 1 > game.pathCoordinates[type]!.length) {
+      return false;
+    }
+    if (index - 1 == game.pathCoordinates[type]!.length) {
+      state = PieceState.won;
+    }
     return true;
   }
 
-  
+  @override
+  List<Object?> get props => [playerId, type];
 }

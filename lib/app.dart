@@ -2,7 +2,7 @@ import 'package:flame/game.dart';
 import 'package:flutter/material.dart';
 
 import 'src/chaupar.dart';
-import 'src/config.dart';
+import 'src/constants/constant.dart';
 import 'src/widgets/overlay_screen.dart';
 
 class GameApp extends StatelessWidget {

@@ -1,22 +1,27 @@
 import 'package:flame/components.dart';
+import 'package:flame/effects.dart';
 import 'package:flame/events.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../chaupar.dart';
-import '../config.dart';
+import '../constants/constant.dart';
+import '../utils/component_alignment.dart';
 import 'components.dart';
 
 class DicePair extends PositionComponent
     with TapCallbacks, HasGameReference<Chaupar> {
+  late ComponentAlignment alignment;
   DicePair({
     required super.position,
     required super.size,
   }) : super(
           anchor: Anchor.center,
-        );
+        ) {
+    alignment = ComponentAlignment.center;
+  }
 
-  bool _isPressed = false;
+  bool isRolled = false;
 
   late final Dice dice1;
   late final Dice dice2;
@@ -45,68 +50,147 @@ class DicePair extends PositionComponent
     );
   }
 
+// check whose is current player is any of it pieces is moveable
+  void nextTurn() {
+    if (kDebugMode) {
+      print('currentPlayer: ${game.currentPlayer}');
+    }
+
+    game.handlePlayerAction();
+  }
+
+  void handlePlayerAction() {
+    if (game.gameState != GameState.playing) return;
+
+    movePieces();
+    game.nextTurn();
+  }
+
+  // create a method to move the pieces based on the dice roll.
+  void movePieces() {
+    final pieceType = game.playablePieces.elementAt(game.currentPlayer);
+    final piece = game.world.children
+        .query<Piece>()
+        .where((piece) => piece.type == pieceType)
+        .first;
+    if (kDebugMode) {
+      print('pieceType: $pieceType');
+      print('piece: $piece');
+    }
+
+    // Calculate the new position based on the dice roll
+    final totalRolledValues = dice1.value + dice2.value;
+    var newPositionIndex = piece.index + totalRolledValues;
+    if (kDebugMode) {
+      print('totalRolledValues: $totalRolledValues');
+      print('newPositionIndex: $newPositionIndex');
+    }
+
+    if (newPositionIndex > 84) return;
+    if (newPositionIndex == 84) {
+      piece.state = PieceState.won;
+      piece.position = game.size / 2;
+      return;
+    }
+    // Ensure the new position doesn't exceed the path length
+    if (newPositionIndex > game.pathCoordinates[piece.type]!.length) {
+      newPositionIndex = game.pathCoordinates[piece.type]!.length;
+    }
+    if (kDebugMode) {
+      print('newPositionIndex: $newPositionIndex');
+    }
+
+    // // Update the piece's position on the board
+    // piece.index = newPositionIndex;
+
+    // // Get the new board position
+    // final newBoardPosition = game.getBoardPosition(piece);
+    // piece.position = newBoardPosition;
+
+    // // Move the piece to the new position
+    // piece.moveBy(newBoardPosition);
+
+    piece.move(totalRolledValues);
+    game.isNowGameLoopRunable = true;
+
+    // final List<Vector2> positions = [];
+    // for (var i = 0; i < totalRolledValues; i++) {
+    //   final moveCoord =
+    //       game.pathCoordinates[piece.type]?.elementAt(piece.index);
+    //   final offset = game.boardOffsetMap[moveCoord]!;
+    //   final distination =
+    //       piece.position = game.boardPosition + Vector2(offset.dx, offset.dy);
+    //   positions.add(distination);
+    //   if (kDebugMode) {
+    //     print('piece.index: ${piece.index}');
+    //     print('moveCoord: $moveCoord');
+    //     print('offset: $offset');
+    //     print('game.boardPosition: ${game.boardPosition}');
+    //     print('piece.position: ${piece.position}');
+    //     print('piece.radius: ${piece.radius}');
+    //     print(
+    //         'game.boardPosition + Vector2(offset.dx, offset.dy): ${game.boardPosition + Vector2(offset.dx, offset.dy)}');
+    //     print("");
+    //   }
+
+    //   piece.index += 1;
+    // piece.moveTo(positions);
+    // }
+  }
+
   void roll() {
     dice1.roll();
     dice2.roll();
   }
 
   @override
-  void onTapDown(TapDownEvent event) => _isPressed = true;
+  void onTapDown(TapDownEvent event) {
+    super.onTapDown(event);
+    game.audioService.play(SoundAssets.diceThrow3);
+    if (!isRolled) {
+      roll();
+      isRolled = true;
+      game.handlePlayerAction();
+    }
+  }
 
-  @override
-  void onTapUp(TapUpEvent event) => _isPressed = false;
+  void moveBy(Vector2 distination) {
+    add(
+      MoveToEffect(
+        distination,
+        EffectController(duration: 0.2),
+      ),
+    );
+  }
 
-  @override
-  void onTapCancel(TapCancelEvent event) => _isPressed = false;
+  void updateDicePositionBasedOnCurrentPlayer(double dt) {
+    switch (game.currentPlayer) {
+      case 0:
+        alignment = ComponentAlignment.bottomRight * 0.9;
+        position = game.size / 2 +
+            Vector2(tileSize * alignment.x, tileSize * alignment.y) * 5.5;
+        break;
+      case 1:
+        alignment = ComponentAlignment.topRight * 0.9;
+        position = game.size / 2 +
+            Vector2(tileSize * alignment.x, tileSize * alignment.y) * 5.5;
+        break;
+      case 2:
+        alignment = ComponentAlignment.topLeft * 0.9;
+        position = game.size / 2 +
+            Vector2(tileSize * alignment.x, tileSize * alignment.y) * 5.5;
+        break;
+      case 3:
+        alignment = ComponentAlignment.bottomLeft * 0.9;
+        position = game.size / 2 +
+            Vector2(tileSize * alignment.x, tileSize * alignment.y) * 5.5;
+        break;
+    }
+  }
 
   @override
   void update(double dt) {
     super.update(dt);
-    if (_isPressed) {
-      roll();
-      _isPressed = false;
-      
-      if (game.currentPlayer == 0) {
-        final pieces = game.world.children.query<Piece>().where((piece) => piece.type == PieceType.yellow);
-        if (kDebugMode) {
-          print('pieces: $pieces');
-        }
-      }
-
-      final moveValue = dice1.value + dice2.value;
-      final piece = game.world.children.query<Piece>().first;
-      final totalMove = piece.index + moveValue;
-      if (kDebugMode) {
-        print('totalMove: $totalMove');
-      }
-      if (totalMove > 84) return;
-
-      if (totalMove == 84) {
-        piece.state = PieceState.won;
-        piece.position = game.size / 2;
-        return;
-      }
-
-      piece.state = PieceState.moving;
-      piece.index += moveValue;
-      final moveCoord = game.pathCoordinates[piece.type]?.elementAt(totalMove - 1);
-      final offset = game.boardOffsetMap[moveCoord]!;
-      if (totalMove >= 80) {
-        if (kDebugMode) {
-          print('piece.index: ${piece.index}');
-          print('moveCoord: $moveCoord');
-          print('offset: $offset');
-          print('game.boardPosition: ${game.boardPosition}');
-          print('piece.position: ${piece.position}');
-          print('piece.radius: ${piece.radius}');
-          print(
-              'game.boardPosition + Vector2(offset.dx, offset.dy): ${game.boardPosition + Vector2(offset.dx, offset.dy)}');
-          print("");
-        }
-      }
-      piece.position = game.boardPosition + Vector2(offset.dx, offset.dy);
-    }
-
-    _isPressed = false;
+    updateDicePositionBasedOnCurrentPlayer(dt);
   }
 }
